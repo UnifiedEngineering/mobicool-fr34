@@ -3,9 +3,15 @@ Alternate firmware for Mobicool FR34/FR40 compressor cooler
 
 There are two reasons for this firmware: First I wanted to explore the possibility to run the cooler down to deep-freeze -18C temperature (as the more expensive Waeco/Dometic units can). I also wanted to be able to run the cooler on an 18V Li-Ion battery pack without the battery monitor getting all freaked out.
 
-(pictures of the boards to be added)
+Mainboard top and bottom (notice the ground plane in the board easily visible by J2, not a simple 2-layer job):
+![Main board top](Images/MainBoardTop.JPG "Mainboard Top")
+![Main board bot](Images/MainBoardBottom.JPG "Mainboard Bottom")
 
-The input is protected from reverse voltage, the 3.3V powering the logic is provided by an LDO (!), yes even from 27+V as it receives when plugged into mains. There's a 12V DC/DC converter powering the cooling fan and some part of the compressor motor driver. The interior LED light is powered directly from the input voltage with a load switch and a series resistor, so intensity will vary depending on input voltage. 
+Display and buttons board top and bottom:
+![Disp board top](Images/DisplayBoardTop.JPG "Display board Top")
+![Disp board bot](Images/DisplayBoardBottom.JPG "Display board Bottom")
+
+The input is protected from reverse voltage, the 3.3V powering the logic is provided by U3, an LDO (!), yes even from 27+V as it receives when plugged into mains. There's a 12V DC/DC converter powering the cooling fan and some part of the compressor motor driver. The interior LED light is powered directly from the input voltage with a load switch and a series resistor, so intensity will vary depending on input voltage. 
 
 PIC16F1829 pins as used on this board:
 
@@ -39,3 +45,9 @@ The motor controller for the brushless DC-motor driving the compressor is an IRM
 This firmware was built using the MPLAB X IDE v4.20 and the free XC8 C compiler v2.00 (which worked a lot better now than the really dumb stuff Microchip had last time I used a PIC processor some 10 years ago :))
 
 The ICSP connector (J2) is a standard pinout one where pin 1 (MCLR) being the square one. Note that the system voltage is 3.3V and the LVP program fuse most likely was disabled in the pre-programmed parts, so 9V (not 12V!) has to be applied to MCLR to program.
+
+
+Here are two final images showing the remaining parts inside and the exterior:
+![Interior](Images/WancoolCompressor.JPG "Compressor and power supply")
+![Exterior](Images/MobicoolFR34ExteriorOriginalFirmware.JPG "Exterior of Mobicool FR34, with original firmware")
+(the leading zero in the exterior shot reveals that it is running the original firmware :))
