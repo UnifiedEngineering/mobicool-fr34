@@ -62,6 +62,7 @@ typedef enum {
     DISP_COMPTIMER,
     DISP_COMPSPEED,
     DISP_FANCURRENT,
+    DISP_TEMPRATE,
     DISP_END,
 } displaystate_t;
 
@@ -74,7 +75,8 @@ typedef enum {
 } eedata_t;
 
 typedef enum {
-    COMP_OFF = 0,
+    COMP_LOCKOUT = 0,
+    COMP_OFF,
     COMP_STARTING,
     COMP_RUN,
 } comp_state_t;
@@ -110,9 +112,9 @@ void main(void) {
     uint8_t lastkeys = 0;
     uint8_t flashtimer = 0;
     uint16_t seconds = 0;
-    uint8_t comp_timer = 0;
+    uint8_t comp_timer = 20;
     uint8_t comp_speed = 0;
-    comp_state_t compstate = COMP_OFF;
+    comp_state_t compstate = COMP_LOCKOUT;
 
     bool eeinvalid = false;
     if (DATAEE_ReadByte(EE_MAGIC) != MAGIC) {
@@ -128,8 +130,15 @@ void main(void) {
         DATAEE_WriteByte(EE_MAGIC, MAGIC); // Always write magic at the end
     }
     
+    AnalogUpdate();
     int8_t newtemp = temp_setpoint;
     int16_t temp_setpoint10 = temp_setpoint * 10;
+    int16_t tempacc = 0;
+    uint8_t numtemps = 0;
+    int16_t temperature10 = AnalogGetTemperature10();
+    int16_t temp_rate = 0; // Rate of change per minute in tenths of degrees C
+    int16_t last_temp = 0;
+    uint8_t temp_rate_tick = 0;
     
     while (1) {
         bool compressor_check = false;
@@ -141,7 +150,13 @@ void main(void) {
         }
 
         AnalogUpdate();
-        int16_t temperature10 = AnalogGetTemperature10();
+        // Average temperature a bit more
+        tempacc += AnalogGetTemperature10();
+        numtemps++;
+        if (numtemps == 64) {
+            temperature10 = (tempacc + 32) >> 6;
+            tempacc = numtemps = 0;
+        }
         uint16_t voltage = AnalogGetVoltage();
         uint16_t fancurrent = AnalogGetFanCurrent();
         uint8_t comppower = AnalogGetCompPower();
@@ -206,9 +221,8 @@ void main(void) {
             }
             case DISP_COMPSPEED: {
                 uint8_t buf[3];
-                buf[1] = 0;
-                FormatDigits(buf, comp_speed, 0);
-                TM1620B_Update( (uint8_t[]){leds, c_r, 0, buf[0], buf[1]} );
+                FormatDigits(buf, comp_speed * 5, 3); // In percent
+                TM1620B_Update( (uint8_t[]){leds, c_r, buf[0], buf[1], buf[2]} );
                 break;
             }
             case DISP_FANCURRENT: {
@@ -220,6 +234,17 @@ void main(void) {
                 FormatDigits(&buf[4 - num], dispamp, 2);
                 buf[3] |= ADD_DOT;
                 buf[4] = c_A;
+                TM1620B_Update( buf );
+                break;
+            }
+            case DISP_TEMPRATE: {
+                uint8_t buf[5];
+                uint8_t num = FormatDigits(NULL, temp_rate, 2);
+                buf[0] = leds;
+                buf[1] = c_d;
+                buf[2] = 0;
+                FormatDigits(&buf[5 - num], temp_rate, 2);
+                buf[4] |= ADD_DOT;
                 TM1620B_Update( buf );
                 break;
             }
@@ -244,8 +269,9 @@ void main(void) {
                 break;
             case IDLE: {
                 uint8_t buf[5] = {leds, 0, 0, 0, c_C | ADD_DOT};
-                uint8_t num = FormatDigits(NULL, temperature, 0);
-                FormatDigits(&buf[4 - num], temperature, 0); // Right justified
+                uint8_t num = FormatDigits(NULL, temperature10, 2);
+                FormatDigits(&buf[4 - num], temperature10, 2); // Right justified
+                buf[3] |= ADD_DOT;
                 TM1620B_Update( buf );
                 break;
             }
@@ -258,7 +284,9 @@ void main(void) {
         __delay_ms(10);
         
         if (compressor_check) {
-            uint8_t speed = 0;
+            uint8_t min = Compressor_GetMinSpeedIdx();
+            uint8_t max = Compressor_GetMaxSpeedIdx();
+            uint8_t speedidx = 0;
             static uint8_t fanspin = 0;
             int16_t tempdiff = (temperature10 - temp_setpoint10);
             if (comp_timer > 0) {
@@ -267,36 +295,66 @@ void main(void) {
             }
             if (fanspin > 0) fanspin--;
             switch (compstate) {
+                case COMP_LOCKOUT:
+                    // Make sure compressor isn't cycling too fast
+                    Compressor_OnOff(false, fanspin > 0, 0); // Stopped
+                    break;
                 case COMP_OFF:
-                    if (tempdiff > 0 && comp_timer == 0) {
-                        comp_timer = 20;
+                    if (tempdiff >= 2 && comp_timer == 0) { // 0.2C above setpoint
+                        comp_timer = 2;
+                        fanspin = 2;
                     }
-                    if (comp_timer == 5) fanspin = 5;
-                    Compressor_OnOff(false, fanspin > 0, speed); // Stopped
+                    Compressor_OnOff(false, fanspin > 0, 0); // Stopped
                     break;
                 case COMP_STARTING:
-                    speed = 41; // Start at idle speed (revolutions per second)
-                    Compressor_OnOff(true, true, speed);
+                    speedidx = Compressor_GetDefaultSpeedIdx(); // Start at idle speed
+                    Compressor_OnOff(true, true, speedidx);
                     if (comp_timer == 0) {
+                        temp_rate_tick = 0;
+                        temp_rate = 0;
+                        last_temp = temperature10;
                         comp_timer = 30;
                     }
                     break;
                 case COMP_RUN:
-                    speed = comp_speed;
-                    if (comppower <= 45 && speed < 75 && tempdiff > 2) {
-                        speed++;
-                    } else if ((comppower > 45 || tempdiff <= 1) && speed > 41) {
-                        speed--;
+                    speedidx = comp_speed;
+                    temp_rate_tick++;
+                    if (temp_rate_tick == 60) {
+                        temp_rate = temperature10 - last_temp;
+                        // Because the NTC is VERY slow to react to temperature changes
+                        // we need to control the rate of temperature change to avoid
+                        // undershooting at higher temperatures
+                        if (tempdiff > 100 && comppower < 45) { // More than 10C above, max cooling
+                            speedidx = max;
+                        } else if (tempdiff > 40) { // More than 4C above, try to maintain -0.5C per minute
+                            if (temp_rate > -5 && speedidx < max) {
+                                speedidx++;
+                            } else if (temp_rate < -5 && speedidx > min) {
+                                speedidx--;
+                            }
+                        } else { // When we get closer to the setpoint, try to maintain -0.1C per minute
+                            if (temp_rate > -1 && speedidx < max) {
+                                speedidx++;
+                            } else if (temp_rate < -1 && speedidx > min) {
+                                speedidx--;
+                            }
+                        }
+                        temp_rate_tick = 0;
+                        last_temp = temperature10;
                     }
-                    if (tempdiff < 0) {
-                        compstate = COMP_OFF;
+                    if (comppower > 45 && speedidx > min) {
+                        speedidx--;
+                    }
+                    if (tempdiff <= -2) { // 0.2C below setpoint
+                        compstate = COMP_LOCKOUT;
+                        comp_timer = 99; // 99s lockout after run
                         fanspin = 120;
                     } else {
-                        Compressor_OnOff(true, true, speed);
+                        Compressor_OnOff(true, true, speedidx);
                     }
                     break;
             }
-            comp_speed = speed;
+            comp_speed = speedidx;
         }
         lastkeys = keys;
     }
