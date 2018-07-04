@@ -179,10 +179,10 @@ void main(void) {
             case DISP_VOLT: {
                 uint8_t buf[5];
                 uint16_t dispvolt = ((voltage + 64) >> 7) + ((voltage + 256) >> 9) + ((voltage + 2048) >> 12); // decivolt
-                uint8_t num = FormatDigits(NULL, dispvolt);
+                uint8_t num = FormatDigits(NULL, dispvolt, 2);
                 buf[0] = leds;
                 buf[1] = 0;
-                FormatDigits(&buf[4 - num], dispvolt);
+                FormatDigits(&buf[4 - num], dispvolt, 2);
                 buf[3] |= ADD_DOT;
                 buf[4] = c_V;
                 TM1620B_Update( buf );
@@ -191,32 +191,31 @@ void main(void) {
             case DISP_COMPPOWER: {
                 uint8_t buf[3];
                 buf[1] = 0;
-                FormatDigits(buf, comppower);
+                FormatDigits(buf, comppower, 0);
                 TM1620B_Update( (uint8_t[]){leds, c_C, 0, buf[0], buf[1]} );
                 break;
             }
             case DISP_COMPTIMER: {
                 uint8_t buf[3];
                 buf[1] = 0;
-                FormatDigits(buf, comp_timer);
+                FormatDigits(buf, comp_timer, 0);
                 TM1620B_Update( (uint8_t[]){leds, c_t, 0, buf[0], buf[1]} );
                 break;
             }
             case DISP_COMPSPEED: {
                 uint8_t buf[3];
                 buf[1] = 0;
-                FormatDigits(buf, comp_speed);
+                FormatDigits(buf, comp_speed, 0);
                 TM1620B_Update( (uint8_t[]){leds, c_r, 0, buf[0], buf[1]} );
                 break;
             }
             case DISP_FANCURRENT: {
                 uint8_t buf[5];
                 uint16_t dispamp = ((fancurrent + 64) >> 7) + ((fancurrent + 256) >> 9) + ((fancurrent + 2048) >> 12); // deciamp
-                uint8_t num = FormatDigits(NULL, dispamp);
+                uint8_t num = FormatDigits(NULL, dispamp, 2);
                 buf[0] = leds;
                 buf[1] = c_F;
-                buf[2] = hexdigits[0];
-                FormatDigits(&buf[4 - num], dispamp);
+                FormatDigits(&buf[4 - num], dispamp, 2);
                 buf[3] |= ADD_DOT;
                 buf[4] = c_A;
                 TM1620B_Update( buf );
@@ -228,8 +227,8 @@ void main(void) {
                 if (pressed_keys & KEY_MINUS && newtemp > MIN_TEMP) newtemp--;
                 if (pressed_keys & KEY_PLUS && newtemp < MAX_TEMP) newtemp++;
                 if (!(flashtimer & 0x08)) {
-                    uint8_t num = FormatDigits(NULL, newtemp);
-                    FormatDigits(&buf[4 - num], newtemp); // Right justified
+                    uint8_t num = FormatDigits(NULL, newtemp, 0);
+                    FormatDigits(&buf[4 - num], newtemp, 0); // Right justified
                 }
                 TM1620B_Update( buf );
                 flashtimer++;
@@ -243,8 +242,8 @@ void main(void) {
                 break;
             case IDLE: {
                 uint8_t buf[5] = {leds, 0, 0, 0, c_C | ADD_DOT};
-                uint8_t num = FormatDigits(NULL, temperature);
-                FormatDigits(&buf[4 - num], temperature); // Right justified
+                uint8_t num = FormatDigits(NULL, temperature, 0);
+                FormatDigits(&buf[4 - num], temperature, 0); // Right justified
                 TM1620B_Update( buf );
                 break;
             }

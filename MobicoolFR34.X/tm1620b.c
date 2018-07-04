@@ -160,17 +160,20 @@ void TM1620B_Init(void) {
     TM1620B_Send(TM_DISPCTRL | TM_DC_ENABLE | TM_DC_BRIGHTNESS(4), true);
 }
 
-uint8_t FormatDigits(uint8_t* outbuf, int16_t inum) {
+uint8_t FormatDigits(uint8_t* outbuf, int16_t inum, uint8_t mindigits) {
     // Max range -199 to 999, but max number of characters output is 3
     // This means that numbers between -100 and -199 will have the minus
     // and first digit combined in one character
     // Returns number of characters which will be used even if outbuf is NULL
+    // mindigits sets the minimum number of digits output (useful for fixed-
+    // point operation)
     if (inum < -199 || inum > 999) return 0;
     bool isnegative = inum < 0;
     uint16_t num = isnegative ? -inum : inum;
     uint8_t digits = 1;
     if (num > 9) digits++;
     if (num > 99) digits++;
+    if (digits < mindigits) digits = mindigits;
     uint8_t numchars = (isnegative && digits < 3) ? (digits + 1) : digits;
     uint8_t offset = numchars - digits;
     if (outbuf) {
