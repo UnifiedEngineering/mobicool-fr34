@@ -129,6 +129,7 @@ void main(void) {
     }
     
     int8_t newtemp = temp_setpoint;
+    int16_t temp_setpoint10 = temp_setpoint * 10;
     
     while (1) {
         bool compressor_check = false;
@@ -140,7 +141,7 @@ void main(void) {
         }
 
         AnalogUpdate();
-        int8_t temperature = AnalogGetTemperature();
+        int16_t temperature10 = AnalogGetTemperature10();
         uint16_t voltage = AnalogGetVoltage();
         uint16_t fancurrent = AnalogGetFanCurrent();
         uint8_t comppower = AnalogGetCompPower();
@@ -171,6 +172,7 @@ void main(void) {
         if (cur_state == IDLE) { // Perform housekeeping if we need to update settings
             if (newtemp != temp_setpoint) {
                 temp_setpoint = newtemp;
+                temp_setpoint10 = newtemp * 10;
                 DATAEE_WriteByte(EE_TEMP, temp_setpoint);
             }
         }
@@ -258,7 +260,7 @@ void main(void) {
         if (compressor_check) {
             uint8_t speed = 0;
             static uint8_t fanspin = 0;
-            int8_t tempdiff = (temperature - temp_setpoint);
+            int16_t tempdiff = (temperature10 - temp_setpoint10);
             if (comp_timer > 0) {
                 comp_timer--;
                 if (comp_timer == 0) compstate++;

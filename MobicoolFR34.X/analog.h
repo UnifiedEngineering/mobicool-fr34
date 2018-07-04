@@ -2,7 +2,7 @@
 #define	ANALOG_H
 
 void AnalogUpdate(void);
-int8_t AnalogGetTemperature(void);
+int16_t AnalogGetTemperature10(void);
 uint16_t AnalogGetVoltage(void);
 uint16_t AnalogGetFanCurrent(void);
 uint8_t AnalogGetCompPower(void);
