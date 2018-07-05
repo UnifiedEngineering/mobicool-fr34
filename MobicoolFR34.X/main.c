@@ -17,7 +17,6 @@
  */
 
 // Todo:
-// Implement SET (maybe F/C switch, battery monitor level selection)
 // Implement fan over-current error handling
 // Implement compressor stall error reporting
 // On/Off
@@ -81,6 +80,13 @@ typedef enum {
     COMP_RUN,
 } comp_state_t;
 
+typedef enum {
+    BMON_DIS = 0,
+    BMON_LOW,
+    BMON_MED,
+    BMON_HIGH
+} bmon_t;
+
 void main(void) {
     // initialize the device
     SYSTEM_Initialize();
@@ -124,14 +130,25 @@ void main(void) {
     if (temp_setpoint < MIN_TEMP || temp_setpoint > MAX_TEMP) {
         eeinvalid = true;
     }
+    bool fahrenheit = DATAEE_ReadByte(EE_UNIT);
+    bmon_t battmon = DATAEE_ReadByte(EE_BATTMON);
+    if (battmon > BMON_HIGH) {
+        eeinvalid = true;
+    }
     if (eeinvalid) {
         temp_setpoint = DEFAULT_TEMP;
         DATAEE_WriteByte(EE_TEMP, temp_setpoint);
+        fahrenheit = false;
+        DATAEE_WriteByte(EE_UNIT, fahrenheit);
+        battmon = BMON_DIS; // No battery monitor at the moment, should not default to off when bmon is implemented
+        DATAEE_WriteByte(EE_BATTMON, battmon);
         DATAEE_WriteByte(EE_MAGIC, MAGIC); // Always write magic at the end
     }
     
     AnalogUpdate();
     int8_t newtemp = temp_setpoint;
+    bool newfahrenheit = fahrenheit;
+    bmon_t newbattmon = battmon;
     int16_t temp_setpoint10 = temp_setpoint * 10;
     int16_t tempacc = 0;
     uint8_t numtemps = 0;
@@ -209,6 +226,14 @@ void main(void) {
                 temp_setpoint10 = newtemp * 10;
                 DATAEE_WriteByte(EE_TEMP, temp_setpoint);
             }
+            if (newfahrenheit != fahrenheit) {
+                fahrenheit = newfahrenheit;
+                DATAEE_WriteByte(EE_UNIT, fahrenheit);
+            }
+            if (newbattmon != battmon) {
+                battmon = newbattmon;
+                DATAEE_WriteByte(EE_BATTMON, battmon);
+            }
         }
         
         switch (cur_state) {
@@ -268,27 +293,42 @@ void main(void) {
                 break;
             }
             case SET_TEMP: {
-                uint8_t buf[5] = {leds, 0, 0, 0, c_C | ADD_DOT};
+                uint8_t buf[5] = {leds, 0, 0, 0, fahrenheit ? c_F : c_C | ADD_DOT};
                 if (pressed_keys & KEY_MINUS && newtemp > MIN_TEMP) newtemp--;
                 if (pressed_keys & KEY_PLUS && newtemp < MAX_TEMP) newtemp++;
                 if (!(flashtimer & 0x08)) {
-                    uint8_t num = FormatDigits(NULL, newtemp, 0);
-                    FormatDigits(&buf[4 - num], newtemp, 0); // Right justified
+                    int8_t disptemp = fahrenheit ? ((((newtemp * 9) + 2) / 5) + 32) : newtemp;
+                    uint8_t num = FormatDigits(NULL, disptemp, 0);
+                    FormatDigits(&buf[4 - num], disptemp, 0); // Right justified
                 }
                 TM1620B_Update( buf );
                 break;
             }
             case SET_UNIT:
-                TM1620B_Update( (uint8_t[]){leds, 0, 0, 0, c_C | ADD_DOT} ); // Only Celsius at the moment
+                if (pressed_keys & (KEY_PLUS | KEY_MINUS)) {
+                    newfahrenheit = !fahrenheit;
+                }
+                TM1620B_Update( (uint8_t[]){leds, 0, 0, 0, (flashtimer & 0x08 ? 0 : (newfahrenheit ? c_F : c_C)) | ADD_DOT} );
                 break;
-            case SET_BATTMON:
-                TM1620B_Update( (uint8_t[]){leds, 0, c_d, c_i, c_S} ); // No battery monitor at the moment
+            case SET_BATTMON: {
+                bool show = !(flashtimer & 0x8);
+                TM1620B_Update( (uint8_t[]){leds, 0, show ? c_d : 0, show ? c_i : 0, show ? c_S : 0} ); // No battery monitor at the moment
                 break;
+            }
             case IDLE: {
-                uint8_t buf[5] = {leds, 0, 0, 0, c_C | ADD_DOT};
-                uint8_t num = FormatDigits(NULL, temperature10, 2);
-                FormatDigits(&buf[4 - num], temperature10, 2); // Right justified
-                buf[3] |= ADD_DOT;
+                uint8_t buf[5] = {leds, 0, 0, 0, fahrenheit ? c_F : c_C | ADD_DOT};
+                bool tenths = true; // Maybe customizable in the future?
+                if (fahrenheit && temperature10 > 377) tenths = false; // Force tenths off when above 99.9F
+                int16_t disptemp;
+                if (tenths) {
+                    disptemp = fahrenheit ? ((((temperature10 * 9) + 2) / 5) + 320) : temperature10;
+                } else {
+                    int16_t temperature = (temperature10 + 5) / 10;
+                    disptemp = fahrenheit ? ((((temperature * 9) + 2) / 5) + 32) : temperature;
+                }
+                uint8_t num = FormatDigits(NULL, disptemp, tenths ? 2 : 0);
+                FormatDigits(&buf[4 - num], disptemp, tenths ? 2 : 0); // Right justified
+                if (tenths) buf[3] |= ADD_DOT;
                 TM1620B_Update( buf );
                 break;
             }
