@@ -37,6 +37,7 @@ extern const uint8_t hexdigits[];
 
 void TM1620B_Update(uint8_t* buf);
 uint8_t TM1620B_GetKeys(void);
+void TM1620B_SetBrightness(bool on, uint8_t brightness);
 void TM1620B_Init(void);
 uint8_t FormatDigits(uint8_t* outbuf, int16_t inum, uint8_t mindigits);
 

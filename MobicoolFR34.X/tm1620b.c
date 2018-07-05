@@ -149,8 +149,9 @@ uint8_t TM1620B_GetKeys(void) {
     return keys;
 }
 
-//Add Set brightness / disable function
-//TM1620B_Send(TM_DISPCTRL | TM_DC_BRIGHTNESS(0), true); // Blank display
+void TM1620B_SetBrightness(bool on, uint8_t brightness) {
+    TM1620B_Send(TM_DISPCTRL | (on ? TM_DC_ENABLE : 0) | TM_DC_BRIGHTNESS((brightness < 8) ? brightness : 7), true); // Blank display  
+}
 
 void TM1620B_Init(void) {
     IO_STB_SetHigh();
