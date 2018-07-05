@@ -363,7 +363,7 @@ void main(void) {
                     Compressor_OnOff(false, fanspin > 0, 0); // Stopped
                     break;
                 case COMP_STARTING:
-                    speedidx = Compressor_GetDefaultSpeedIdx(); // Start at idle speed
+                    speedidx = (temp_setpoint10 > 0) ? Compressor_GetMinSpeedIdx() : Compressor_GetDefaultSpeedIdx();
                     Compressor_OnOff(true, true, speedidx);
                     if (comp_timer == 0) {
                         temp_rate_tick = 0;
@@ -405,6 +405,7 @@ void main(void) {
                         compstate = COMP_LOCKOUT;
                         comp_timer = 99; // 99s lockout after run
                         fanspin = 120;
+                        temp_rate = 0;
                     } else {
                         Compressor_OnOff(true, true, speedidx);
                     }
