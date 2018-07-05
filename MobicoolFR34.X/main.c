@@ -20,8 +20,6 @@
 // Implement SET (maybe F/C switch, battery monitor level selection)
 // Implement fan over-current error handling
 // Implement compressor stall error reporting
-// Implement display timeout to return to idle after a few seconds
-// Average numbers on display (also getting rid of the 10ms delay in the loop)
 // Brightness control of display, including dimming after a while in idle
 // On/Off
 // Implement battery monitor, original manual describes Lo/MEd/Hi as follows:
@@ -139,6 +137,7 @@ void main(void) {
     int16_t temp_rate = 0; // Rate of change per minute in tenths of degrees C
     int16_t last_temp = 0;
     uint8_t temp_rate_tick = 0;
+    uint8_t idletimer = 0;
     
     while (1) {
         bool compressor_check = false;
@@ -147,6 +146,11 @@ void main(void) {
             PIR1bits.TMR1IF = 0;
             seconds++;
             compressor_check = true;
+            if (idletimer < 10) {
+                idletimer++;
+            } else if (idletimer == 10) {
+                cur_state = IDLE;
+            }
         }
 
         AnalogUpdate();
@@ -166,6 +170,12 @@ void main(void) {
 
         bool comp_on = Compressor_IsOn();
         uint8_t leds = /*orange*/!comp_on << 7 | /*err*/0b0 << 6 | /*green*/comp_on << 4;
+
+        if (pressed_keys) {            
+            flashtimer = 0; // restart flash timer on every keypress
+            idletimer = 0;
+            TM1620B_SetBrightness(true, DEFAULT_BRIGHT);
+        }
 
         if (pressed_keys & KEY_ONOFF) {
             // Implement actual power off/on here some day, on long-press
@@ -250,7 +260,6 @@ void main(void) {
             }
             case SET_TEMP: {
                 uint8_t buf[5] = {leds, 0, 0, 0, c_C | ADD_DOT};
-                if (pressed_keys) flashtimer = 0; // restart flash timer on every keypress
                 if (pressed_keys & KEY_MINUS && newtemp > MIN_TEMP) newtemp--;
                 if (pressed_keys & KEY_PLUS && newtemp < MAX_TEMP) newtemp++;
                 if (!(flashtimer & 0x08)) {
@@ -258,7 +267,6 @@ void main(void) {
                     FormatDigits(&buf[4 - num], newtemp, 0); // Right justified
                 }
                 TM1620B_Update( buf );
-                flashtimer++;
                 break;
             }
             case SET_UNIT:
@@ -281,7 +289,6 @@ void main(void) {
             case DISP_END:
                 break;
         }
-        __delay_ms(10);
         
         if (compressor_check) {
             uint8_t min = Compressor_GetMinSpeedIdx();
@@ -357,5 +364,6 @@ void main(void) {
             comp_speed = speedidx;
         }
         lastkeys = keys;
+        flashtimer++;
     }
 }
