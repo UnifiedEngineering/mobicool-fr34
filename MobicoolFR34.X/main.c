@@ -20,7 +20,6 @@
 // Implement SET (maybe F/C switch, battery monitor level selection)
 // Implement fan over-current error handling
 // Implement compressor stall error reporting
-// Brightness control of display, including dimming after a while in idle
 // On/Off
 // Implement battery monitor, original manual describes Lo/MEd/Hi as follows:
 //  Lo, MEd, Hi, (and diS maybe)
@@ -42,6 +41,9 @@
 #define MAX_TEMP (10)
 #define MIN_TEMP (-18)
 #define DEFAULT_TEMP MAX_TEMP
+
+#define DEFAULT_BRIGHT (4)
+#define DIM_BRIGHT (0)
 
 #define MAGIC ('W')
 
@@ -138,6 +140,7 @@ void main(void) {
     int16_t last_temp = 0;
     uint8_t temp_rate_tick = 0;
     uint8_t idletimer = 0;
+    uint8_t dimtimer = 0;
     
     while (1) {
         bool compressor_check = false;
@@ -150,6 +153,11 @@ void main(void) {
                 idletimer++;
             } else if (idletimer == 10) {
                 cur_state = IDLE;
+            }
+            if (dimtimer < 20) {
+                dimtimer++;
+            } else if (dimtimer == 20) {
+                TM1620B_SetBrightness(true, DIM_BRIGHT);
             }
         }
 
@@ -174,6 +182,7 @@ void main(void) {
         if (pressed_keys) {            
             flashtimer = 0; // restart flash timer on every keypress
             idletimer = 0;
+            dimtimer = 0;
             TM1620B_SetBrightness(true, DEFAULT_BRIGHT);
         }
 
