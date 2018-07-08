@@ -20,12 +20,6 @@
 // Implement fan over-current error handling
 // Implement compressor stall error reporting
 // On/Off
-// Implement battery monitor, original manual describes Lo/MEd/Hi as follows:
-//  Lo, MEd, Hi, (and diS maybe)
-//  12V off 10.1V, 11.4V, 11.8V
-//  12V on  11.1V, 12.2V, 12.6V
-//  24V off 21.5V, 24.1V, 24.6V
-//  24V on  23.0V, 25.3V, 26.2V
 
 // This was all that was stored in the EEPROM in original firmware:
 // af 2c 00
@@ -87,6 +81,32 @@ typedef enum {
     BMON_HIGH
 } bmon_t;
 
+typedef enum {
+    BMON_WILDCARD = 0,
+    BMON_12V,
+    BMON_24V
+} bmon_volt_t;
+
+typedef struct {
+    bmon_t level;
+    bmon_volt_t supply;
+    int16_t cutout;
+    int16_t restart;
+} battlevel_t;
+
+#define THRESH_12V_24V (170) // Over 17.0V == 24V system, below == 12V system
+
+static const battlevel_t levels[] = {
+    { BMON_DIS, BMON_WILDCARD, 96, 109 }, // Not quite disabled, but the system won't work at lower levels anyway
+    { BMON_LOW, BMON_12V, 101, 111 },
+    { BMON_MED, BMON_12V, 114, 122 },
+    { BMON_HIGH, BMON_12V, 118, 126 },
+    { BMON_LOW, BMON_24V, 215, 230 },
+    { BMON_MED, BMON_24V, 241, 253 },
+    { BMON_HIGH, BMON_24V, 246, 262 },
+};
+#define NUM_BMON_LEVELS (sizeof(levels) / sizeof(levels[0]))
+
 void main(void) {
     // initialize the device
     SYSTEM_Initialize();
@@ -140,7 +160,7 @@ void main(void) {
         DATAEE_WriteByte(EE_TEMP, temp_setpoint);
         fahrenheit = false;
         DATAEE_WriteByte(EE_UNIT, fahrenheit);
-        battmon = BMON_DIS; // No battery monitor at the moment, should not default to off when bmon is implemented
+        battmon = BMON_LOW;
         DATAEE_WriteByte(EE_BATTMON, battmon);
         DATAEE_WriteByte(EE_MAGIC, MAGIC); // Always write magic at the end
     }
@@ -158,6 +178,9 @@ void main(void) {
     uint8_t temp_rate_tick = 0;
     uint8_t idletimer = 0;
     uint8_t dimtimer = 0;
+    uint32_t voltacc = 0;
+    uint8_t numvolts = 0;
+    bool battlow = false;
     
     while (1) {
         bool compressor_check = false;
@@ -187,6 +210,33 @@ void main(void) {
             tempacc = numtemps = 0;
         }
         uint16_t voltage = AnalogGetVoltage();
+
+        // Average voltage some more for battery monitor
+        voltacc += voltage;
+        numvolts++;
+        if (numvolts == 64) {
+            uint16_t volt = (voltacc + 32) >> 6;
+            volt = (volt + 50) / 100; // Scale to tenths of Volts
+            bmon_volt_t supply = (volt > THRESH_12V_24V) ? BMON_24V : BMON_12V;
+            for (uint8_t i = 0; i < NUM_BMON_LEVELS; i++) {
+                if (levels[i].level == battmon &&
+                    (levels[i].supply == BMON_WILDCARD || levels[i].supply == supply)) {
+                    if (volt < levels[i].cutout && !battlow) {
+                        battlow = true;
+                        Compressor_OnOff(false, false, 0);
+                        comp_timer = 20;
+                        compstate = COMP_LOCKOUT;
+                    } else if (volt > levels[i].restart && battlow) {
+                        battlow = false;
+                    }
+                    break;
+                }
+            }
+            voltacc = numvolts = 0;
+        }
+
+        if (battlow) compressor_check = false;
+
         uint16_t fancurrent = AnalogGetFanCurrent();
         uint8_t comppower = AnalogGetCompPower();
 
@@ -194,7 +244,7 @@ void main(void) {
         uint8_t pressed_keys = keys & ~lastkeys;
 
         bool comp_on = Compressor_IsOn();
-        uint8_t leds = /*orange*/!comp_on << 7 | /*err*/0b0 << 6 | /*green*/comp_on << 4;
+        uint8_t leds = /*orange*/!comp_on << 7 | /*err*/battlow << 6 | /*green*/comp_on << 4;
 
         if (pressed_keys) {            
             flashtimer = 0; // restart flash timer on every keypress
@@ -312,7 +362,32 @@ void main(void) {
                 break;
             case SET_BATTMON: {
                 bool show = !(flashtimer & 0x8);
-                TM1620B_Update( (uint8_t[]){leds, 0, show ? c_d : 0, show ? c_i : 0, show ? c_S : 0} ); // No battery monitor at the moment
+                if (pressed_keys & KEY_MINUS && newbattmon > BMON_DIS) newbattmon--;
+                if (pressed_keys & KEY_PLUS && newbattmon < BMON_HIGH) newbattmon++;
+                uint8_t buf[] = {leds, 0, 0, 0, 0};
+                if (show) {
+                    switch (newbattmon) {
+                        case BMON_DIS:
+                            buf[2] = c_d;
+                            buf[3] = c_i;
+                            buf[4] = c_S;
+                            break;
+                        case BMON_LOW:
+                            buf[2] = c_L;
+                            buf[3] = c_o;
+                            break;
+                        case BMON_MED:
+                            buf[2] = c_M;
+                            buf[3] = c_E;
+                            buf[4] = c_d;
+                            break;
+                        case BMON_HIGH:
+                            buf[2] = c_H;
+                            buf[3] = c_i;
+                            break;
+                    }
+                }
+                TM1620B_Update( buf );
                 break;
             }
             case IDLE: {
@@ -329,6 +404,15 @@ void main(void) {
                 uint8_t num = FormatDigits(NULL, disptemp, tenths ? 2 : 0);
                 FormatDigits(&buf[4 - num], disptemp, tenths ? 2 : 0); // Right justified
                 if (tenths) buf[3] |= ADD_DOT;
+                if (battlow) {
+                    if ((flashtimer & 0x0f) < 0xa) {
+                        buf[1] = buf[2] = buf[3] = buf[4] = 0;
+                    } else if (flashtimer & 0x10) {
+                        buf[1] = c_b;
+                        buf[2] = c_A;
+                        buf[3] = buf[4] = c_t;
+                    }
+                }
                 TM1620B_Update( buf );
                 break;
             }
