@@ -356,7 +356,7 @@ void main(void) {
                     Compressor_OnOff(false, fanspin > 0, 0); // Stopped
                     break;
                 case COMP_OFF:
-                    if (tempdiff >= 2 && comp_timer == 0) { // 0.2C above setpoint
+                    if (tempdiff >= 1 && comp_timer == 0) { // 0.1C above setpoint (which in reality is more because of slow NTC response)
                         comp_timer = 2;
                         fanspin = 2;
                     }
@@ -401,7 +401,7 @@ void main(void) {
                     if (comppower > 45 && speedidx > min) {
                         speedidx--;
                     }
-                    if (tempdiff <= -2) { // 0.2C below setpoint
+                    if (tempdiff <= 0) { // at setpoint (because NTC is slow, this will decrease a bit more)
                         compstate = COMP_LOCKOUT;
                         comp_timer = 99; // 99s lockout after run
                         fanspin = 120;
