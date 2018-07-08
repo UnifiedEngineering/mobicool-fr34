@@ -19,7 +19,6 @@
 // Todo:
 // Implement fan over-current error handling
 // Implement compressor stall error reporting
-// On/Off
 
 // This was all that was stored in the EEPROM in original firmware:
 // af 2c 00
@@ -146,6 +145,7 @@ void main(void) {
     if (DATAEE_ReadByte(EE_MAGIC) != MAGIC) {
         eeinvalid = true;
     }
+    bool on = DATAEE_ReadByte(EE_ONOFF);
     int8_t temp_setpoint = DATAEE_ReadByte(EE_TEMP);
     if (temp_setpoint < MIN_TEMP || temp_setpoint > MAX_TEMP) {
         eeinvalid = true;
@@ -156,6 +156,8 @@ void main(void) {
         eeinvalid = true;
     }
     if (eeinvalid) {
+        on = true;
+        DATAEE_WriteByte(EE_ONOFF, on);
         temp_setpoint = DEFAULT_TEMP;
         DATAEE_WriteByte(EE_TEMP, temp_setpoint);
         fahrenheit = false;
@@ -166,6 +168,8 @@ void main(void) {
     }
     
     AnalogUpdate();
+    uint8_t longpress = 0;
+    bool newon = on;
     int8_t newtemp = temp_setpoint;
     bool newfahrenheit = fahrenheit;
     bmon_t newbattmon = battmon;
@@ -246,6 +250,32 @@ void main(void) {
         bool comp_on = Compressor_IsOn();
         uint8_t leds = /*orange*/!comp_on << 7 | /*err*/battlow << 6 | /*green*/comp_on << 4;
 
+        if (keys & KEY_ONOFF) {
+            if (longpress <= 20) longpress++;
+            if (longpress == 20) {
+                newon = !newon;
+                cur_state = IDLE;
+                if (newon) {
+                    idletimer = 0;
+                    dimtimer = 0;
+                    TM1620B_SetBrightness(true, DEFAULT_BRIGHT);
+                } else {
+                    Compressor_OnOff(false, false, 0);
+                    comp_timer = 20;
+                    compstate = COMP_LOCKOUT;
+                    TM1620B_SetBrightness(true, DIM_BRIGHT);
+                }
+            }
+        } else {
+            longpress = 0;
+        }
+
+        if (!on) {
+            leds = 0;
+            pressed_keys = 0;
+            compressor_check = false;
+        }
+
         if (pressed_keys) {            
             flashtimer = 0; // restart flash timer on every keypress
             idletimer = 0;
@@ -271,6 +301,10 @@ void main(void) {
         }
         
         if (cur_state == IDLE) { // Perform housekeeping if we need to update settings
+            if (newon != on) {
+                on = newon;
+                DATAEE_WriteByte(EE_ONOFF, on);
+            }
             if (newtemp != temp_setpoint) {
                 temp_setpoint = newtemp;
                 temp_setpoint10 = newtemp * 10;
@@ -404,7 +438,16 @@ void main(void) {
                 uint8_t num = FormatDigits(NULL, disptemp, tenths ? 2 : 0);
                 FormatDigits(&buf[4 - num], disptemp, tenths ? 2 : 0); // Right justified
                 if (tenths) buf[3] |= ADD_DOT;
-                if (battlow) {
+                if (!on) {
+                    if ((flashtimer & 0x0f) < 0xa) {
+                        buf[1] = buf[2] = buf[3] = buf[4] = 0;
+                    } else if (flashtimer & 0x10) {
+                        buf[1] = c_o;
+                        buf[2] = c_F;
+                        buf[3] = c_F;
+                        buf[4] = 0;
+                    }
+                } else if (battlow) {
                     if ((flashtimer & 0x0f) < 0xa) {
                         buf[1] = buf[2] = buf[3] = buf[4] = 0;
                     } else if (flashtimer & 0x10) {
