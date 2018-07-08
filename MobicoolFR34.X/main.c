@@ -239,7 +239,7 @@ void main(void) {
         switch (cur_state) {
             case DISP_VOLT: {
                 uint8_t buf[5];
-                uint16_t dispvolt = ((voltage + 64) >> 7) + ((voltage + 256) >> 9) + ((voltage + 2048) >> 12); // decivolt
+                uint16_t dispvolt = (voltage + 50) / 100; // decivolt
                 uint8_t num = FormatDigits(NULL, dispvolt, 2);
                 buf[0] = leds;
                 buf[1] = 0;
@@ -271,7 +271,7 @@ void main(void) {
             }
             case DISP_FANCURRENT: {
                 uint8_t buf[5];
-                uint16_t dispamp = ((fancurrent + 64) >> 7) + ((fancurrent + 256) >> 9) + ((fancurrent + 2048) >> 12); // deciamp
+                uint16_t dispamp = (fancurrent + 50) / 100; // deciamp
                 uint8_t num = FormatDigits(NULL, dispamp, 2);
                 buf[0] = leds;
                 buf[1] = c_F;
