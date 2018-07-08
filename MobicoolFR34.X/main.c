@@ -270,7 +270,10 @@ void main(void) {
             longpress = 0;
         }
 
-        if (!on) {
+        if (on) {
+            IO_LightEna_SetHigh();
+        } else {
+            IO_LightEna_SetLow();
             leds = 0;
             pressed_keys = 0;
             compressor_check = false;
